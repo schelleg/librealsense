@@ -1,27 +1,19 @@
-//This file is the hipified version of cuda-pointcloud.h
+// License: Apache 2.0. See LICENSE file in root directory.
+// Copyright(c) 2017 RealSense, Inc. All Rights Reserved.
 
 #pragma once
-#ifndef HIP_POINTCLOUD_H
-#define HIP_POINTCLOUD_H
-
-#ifdef RS2_USE_HIP
-
 #include "../pointcloud.h"
-#include <memory>
 
 namespace librealsense
 {
-    class hip_pointcloud : public pointcloud
+    class pointcloud_hip : public pointcloud
     {
     public:
-        hip_pointcloud();
-        ~hip_pointcloud();
-
-    protected:
-        // TODO: Add HIP-specific methods
+        pointcloud_hip();
+    private:
+        const float3 * depth_to_points(
+            rs2::points output,
+            const rs2_intrinsics &depth_intrinsics,
+            const rs2::depth_frame& depth_frame) override;
     };
 }
-
-#endif // RS2_USE_HIP
-
-#endif // HIP_POINTCLOUD_H

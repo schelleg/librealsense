@@ -1,35 +1,67 @@
-//This file is the hipified version of cuda-align.h
-
+/* License: Apache 2.0. See LICENSE file in root directory. */
+/* Copyright(c) 2019 RealSense, Inc. All Rights Reserved. */
 #pragma once
-#ifndef HIP_ALIGN_H
-#define HIP_ALIGN_H
-
 #ifdef RS2_USE_HIP
 
-#include "../align.h"
+#include "proc/align.h"
+#include "hip-align.hpp"
 #include <memory>
+#include <stdint.h>
 
 namespace librealsense
 {
-    class hip_align : public align
+    class align_hip : public align
     {
     public:
-        hip_align(rs2_stream to_stream);
-        ~hip_align();
+        align_hip(rs2_stream align_to) : align(align_to, "Align (HIP)") {}
+
+    protected:
+        void reset_cache(rs2_stream from, rs2_stream to) override
+        {
+            aligners[std::tuple<rs2_stream, rs2_stream>(from, to)] = align_hip_helper();
+        }
+
+        void align_z_to_other(rs2::video_frame& aligned, const rs2::video_frame& depth, const rs2::video_stream_profile& other_profile, float z_scale) override
+        {
+            uint8_t * aligned_data = reinterpret_cast<uint8_t *>(const_cast<void*>(aligned.get_data()));
+            auto aligned_profile = aligned.get_profile().as<rs2::video_stream_profile>();
+            memset(aligned_data, 0, aligned_profile.height() * aligned_profile.width() * aligned.get_bytes_per_pixel());
+
+            auto depth_profile = depth.get_profile().as<rs2::video_stream_profile>();
+
+            auto z_intrin = depth_profile.get_intrinsics();
+            auto other_intrin = other_profile.get_intrinsics();
+            auto z_to_other = depth_profile.get_extrinsics_to(other_profile);
+
+            auto z_pixels = reinterpret_cast<const uint16_t*>(depth.get_data());
+            auto& aligner = aligners[std::tuple<rs2_stream, rs2_stream>(RS2_STREAM_DEPTH, other_profile.stream_type())];
+            aligner.align_depth_to_other(aligned_data, z_pixels, z_scale, z_intrin, z_to_other, other_intrin);
+        }
+
+        void align_other_to_z(rs2::video_frame& aligned, const rs2::video_frame& depth, const rs2::video_frame& other, float z_scale) override
+        {
+            uint8_t * aligned_data = reinterpret_cast<uint8_t *>(const_cast<void*>(aligned.get_data()));
+            auto aligned_profile = aligned.get_profile().as<rs2::video_stream_profile>();
+            memset(aligned_data, 0, aligned_profile.height() * aligned_profile.width() * aligned.get_bytes_per_pixel());
+
+            auto depth_profile = depth.get_profile().as<rs2::video_stream_profile>();
+            auto other_profile = other.get_profile().as<rs2::video_stream_profile>();
+
+            auto z_intrin = depth_profile.get_intrinsics();
+            auto other_intrin = other_profile.get_intrinsics();
+            auto z_to_other = depth_profile.get_extrinsics_to(other_profile);
+
+            auto z_pixels = reinterpret_cast<const uint16_t*>(depth.get_data());
+            auto other_pixels = reinterpret_cast<const uint8_t*>(other.get_data());
+
+            auto& aligner = aligners[std::tuple<rs2_stream, rs2_stream>(other_profile.stream_type(), RS2_STREAM_DEPTH)];
+            aligner.align_other_to_depth(aligned_data, z_pixels, z_scale, z_intrin, z_to_other, other_intrin, other_pixels,
+                other_profile.format(), other.get_bytes_per_pixel());
+        }
 
     private:
-        void align_z_to_other(rs2::video_frame depth, const rs2::video_stream_profile& depth_profile,
-            rs2::video_frame to, const rs2::video_stream_profile& to_profile, const rs2_intrinsics& depth_intrin,
-            const rs2_intrinsics& other_intrin, const rs2_extrinsics& depth_to_other);
-
-        void align_other_to_z(rs2::video_frame depth, const rs2::video_stream_profile& depth_profile,
-            rs2::video_frame to, const rs2::video_stream_profile& to_profile, const rs2_intrinsics& depth_intrin,
-            const rs2_intrinsics& other_intrin, const rs2_extrinsics& depth_to_other);
-
-        // TODO: Add HIP-specific members
+        std::map<std::tuple<rs2_stream, rs2_stream>, align_hip_helper> aligners;
     };
 }
 
 #endif // RS2_USE_HIP
-
-#endif // HIP_ALIGN_H

@@ -9,51 +9,492 @@
 #include "rship_utils.hpp"
 #include <hip/hip_runtime.h>
 
-// TODO: Add hipified kernel implementations here
-// This is a placeholder file - kernels need to be converted from CUDA to HIP
-
-namespace rship
+/*
+// conversion to Y8 is currently not available in the API
+__global__ void kernel_unpack_yuy2_y8_hip(const uint8_t * src, uint8_t *dst, int superPixCount)
 {
-    // Placeholder implementations - to be filled with actual hipified kernels
-    void y8_y8_from_y8i_hip_helper(uint8_t* const dest[], int count, const y8i_pixel * source)
-    {
-        // TODO: Implement HIP kernel
-    }
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-    void y8_y8_from_y8i_mipi_hip_helper(uint8_t* const dest[], int count, const y8i_pixel_mipi * source)
-    {
-        // TODO: Implement HIP kernel
-    }
+    if (i >= superPixCount)
+        return;
 
-    template<class SOURCE>
-    void y16_y16_from_y12i_10_hip_helper(uint8_t* const dest[], int count, const SOURCE * source)
-    {
-        // TODO: Implement HIP kernel
-    }
+    int idx = i * 4;
 
-    void unpack_yuy2_hip_helper(const uint8_t* src, uint8_t* dst, int n, rs2_format format)
-    {
-        // TODO: Implement HIP kernel
-    }
+    dst[idx] = src[idx];
+    dst[idx + 1] = src[idx + 2];
+    dst[idx + 2] = src[idx + 4];
+    dst[idx + 3] = src[idx + 6];
+    dst[idx + 4] = src[idx + 8];
+    dst[idx + 5] = src[idx + 10];
+    dst[idx + 6] = src[idx + 12];
+    dst[idx + 7] = src[idx + 14];
+    dst[idx + 8] = src[idx + 16];
+    dst[idx + 9] = src[idx + 18];
+    dst[idx + 10] = src[idx + 20];
+    dst[idx + 11] = src[idx + 22];
+    dst[idx + 12] = src[idx + 24];
+    dst[idx + 13] = src[idx + 26];
+    dst[idx + 14] = src[idx + 28];
+    dst[idx + 15] = src[idx + 30];
+}
+*/
 
-    void uyvy_to_yuyv_hip_helper(const uint16_t* src, uint16_t* dst, int n)
-    {
-        // TODO: Implement HIP kernel
-    }
+__global__ void kernel_unpack_yuy2_y16_hip(const uint8_t * src, uint8_t *dst, int superPixCount)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
 
-    void unpack_z16_y8_from_sr300_inzi_hip(uint8_t* const dest, const uint16_t* source, int count)
-    {
-        // TODO: Implement HIP kernel
-    }
+    if (i >= superPixCount)
+        return;
 
-    void unpack_z16_y16_from_sr300_inzi_hip(uint16_t* const dest, const uint16_t* source, int count)
-    {
-        // TODO: Implement HIP kernel
-    }
+    for (; i < superPixCount; i += stride) {
 
-    // Explicit template instantiations
-    template void y16_y16_from_y12i_10_hip_helper<y12i_pixel>(uint8_t* const dest[], int count, const y12i_pixel * source);
-    template void y16_y16_from_y12i_10_hip_helper<y12i_pixel_mipi>(uint8_t* const dest[], int count, const y12i_pixel_mipi * source);
+        int idx = i * 4;
+
+        dst[idx] = 0;
+        dst[idx + 1] = src[idx + 0];
+        dst[idx + 2] = 0;
+        dst[idx + 3] = src[idx + 2];
+    }
 }
 
-#endif // RS2_USE_HIP
+
+__global__ void kernel_unpack_yuy2_rgb8_hip(const uint8_t * src, uint8_t *dst, int superPixCount)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    if (i >= superPixCount)
+        return;
+
+    for (; i < superPixCount; i += stride) {
+
+        int idx = i * 4;
+
+        uint8_t y0 = src[idx];
+        uint8_t u0 = src[idx + 1];
+        uint8_t y1 = src[idx + 2];
+        uint8_t v0 = src[idx + 3];
+
+        int16_t c = y0 - 16;
+        int16_t d = u0 - 128;
+        int16_t e = v0 - 128;
+
+        int32_t t;
+#define clamp(x)  ((t=(x)) > 255 ? 255 : t < 0 ? 0 : t)
+
+        int odx = i * 6;
+
+        dst[odx] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 1] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx + 2] = clamp((298 * c + 516 * d + 128) >> 8);
+
+        c = y1 - 16;
+
+        dst[odx + 3] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 4] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx + 5] = clamp((298 * c + 516 * d + 128) >> 8);
+
+#undef clamp
+
+    }
+}
+
+__global__ void kernel_unpack_yuy2_bgr8_hip(const uint8_t * src, uint8_t *dst, int superPixCount)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    if (i >= superPixCount)
+        return;
+
+    for (; i < superPixCount; i += stride) {
+
+        int idx = i * 4;
+
+        uint8_t y0 = src[idx];
+        uint8_t u0 = src[idx + 1];
+        uint8_t y1 = src[idx + 2];
+        uint8_t v0 = src[idx + 3];
+
+        int16_t c = y0 - 16;
+        int16_t d = u0 - 128;
+        int16_t e = v0 - 128;
+
+        int32_t t;
+#define clamp(x)  ((t=(x)) > 255 ? 255 : t < 0 ? 0 : t)
+
+        int odx = i * 6;
+
+        dst[odx + 2] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 1] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx] = clamp((298 * c + 516 * d + 128) >> 8);
+
+        c = y1 - 16;
+
+        dst[odx + 5] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 4] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx + 3] = clamp((298 * c + 516 * d + 128) >> 8);
+
+#undef clamp
+    }
+}
+
+
+__global__ void kernel_unpack_yuy2_rgba8_hip(const uint8_t * src, uint8_t *dst, int superPixCount)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    if (i >= superPixCount)
+        return;
+
+    for (; i < superPixCount; i += stride) {
+
+        int idx = i * 4;
+
+        uint8_t y0 = src[idx];
+        uint8_t u0 = src[idx + 1];
+        uint8_t y1 = src[idx + 2];
+        uint8_t v0 = src[idx + 3];
+
+        int16_t c = y0 - 16;
+        int16_t d = u0 - 128;
+        int16_t e = v0 - 128;
+
+        int32_t t;
+#define clamp(x)  ((t=(x)) > 255 ? 255 : t < 0 ? 0 : t)
+
+        int odx = i * 8;
+
+        dst[odx] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 1] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx + 2] = clamp((298 * c + 516 * d + 128) >> 8);
+        dst[odx + 3] = 255;
+
+        c = y1 - 16;
+
+        dst[odx + 4] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 5] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx + 6] = clamp((298 * c + 516 * d + 128) >> 8);
+        dst[odx + 7] = 255;
+
+#undef clamp
+    }
+}
+
+__global__ void kernel_unpack_yuy2_bgra8_hip(const uint8_t * src, uint8_t *dst, int superPixCount)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    if (i >= superPixCount)
+        return;
+
+    for (; i < superPixCount; i += stride) {
+
+        int idx = i * 4;
+
+        uint8_t y0 = src[idx];
+        uint8_t u0 = src[idx + 1];
+        uint8_t y1 = src[idx + 2];
+        uint8_t v0 = src[idx + 3];
+
+        int16_t c = y0 - 16;
+        int16_t d = u0 - 128;
+        int16_t e = v0 - 128;
+
+        int32_t t;
+
+#define clamp(x)  ((t=(x)) > 255 ? 255 : t < 0 ? 0 : t)
+
+        int odx = i * 8;
+
+        dst[odx + 3] = 255;
+        dst[odx + 2] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 1] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx] = clamp((298 * c + 516 * d + 128) >> 8);
+
+        c = y1 - 16;
+
+        dst[odx + 7] = 255;
+        dst[odx + 6] = clamp((298 * c + 409 * e + 128) >> 8);
+        dst[odx + 5] = clamp((298 * c - 100 * d - 208 * e + 128) >> 8);
+        dst[odx + 4] = clamp((298 * c + 516 * d + 128) >> 8);
+
+#undef clamp
+    }
+}
+
+__global__ void kernel_uyvy_to_yuyv_hip(uint16_t* src, uint16_t* dst, int count)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i >= count)
+        return;
+
+    dst[i] = ( ( src[i] >> 8 ) & 0x00FF ) | ( ( src[i] << 8 ) & 0xFF00 );
+}
+
+void rship::uyvy_to_yuyv_hip_helper(const uint16_t* src, uint16_t* dst, int count)
+{
+    int numBlocks = count / RS2_HIP_THREADS_PER_BLOCK;
+    auto d_src = alloc_dev<uint16_t>(count);
+    auto d_dst = alloc_dev<uint16_t>(count);
+
+    auto result = hipMemcpy(d_src.get(), src, count * sizeof(uint16_t), hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    hipLaunchKernelGGL(kernel_uyvy_to_yuyv_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), count);
+    hipStreamSynchronize(0);
+
+    result = hipGetLastError();
+    assert(result == hipSuccess);
+
+    result = hipMemcpy(dst, d_dst.get(), count * sizeof(uint16_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+void rship::unpack_yuy2_hip_helper(const uint8_t* h_src, uint8_t* h_dst, int n, rs2_format format)
+{
+    // How many super pixels do we have?
+    int superPix = n / 2;
+    std::shared_ptr<uint8_t> d_dst;
+    std::shared_ptr<uint8_t> d_src = alloc_dev<uint8_t>(superPix * 4);
+
+    auto result = hipMemcpy(d_src.get(), h_src, superPix * sizeof(uint8_t) * 4, hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    int numBlocks = superPix / RS2_HIP_THREADS_PER_BLOCK;
+    int size;
+
+    switch (format)
+    {
+        // conversion to Y8 is currently not available in the API
+        /*	case RS2_FORMAT_Y8:
+            size = 1;
+             d_dst = alloc_dev<uint8_t>(n * size);
+            hipLaunchKernelGGL(kernel_unpack_yuy2_y8_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, devSrc, devDst, superPix);
+            break;
+        */
+    case RS2_FORMAT_Y16:
+        size = 2;
+        d_dst = alloc_dev<uint8_t>(n * size);
+        hipLaunchKernelGGL(kernel_unpack_yuy2_y16_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), superPix);
+        break;
+    case RS2_FORMAT_RGB8:
+        size = 3;
+        d_dst = alloc_dev<uint8_t>(n * size);
+        hipLaunchKernelGGL(kernel_unpack_yuy2_rgb8_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), superPix);
+        break;
+    case RS2_FORMAT_BGR8:
+        size = 3;
+        d_dst = alloc_dev<uint8_t>(n * size);
+        hipLaunchKernelGGL(kernel_unpack_yuy2_bgr8_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), superPix);
+        break;
+    case RS2_FORMAT_RGBA8:
+        size = 4;
+        d_dst = alloc_dev<uint8_t>(n * size);
+        hipLaunchKernelGGL(kernel_unpack_yuy2_rgba8_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), superPix);
+        break;
+    case RS2_FORMAT_BGRA8:
+        size = 4;
+        d_dst = alloc_dev<uint8_t>(n * size);
+        hipLaunchKernelGGL(kernel_unpack_yuy2_bgra8_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), superPix);
+        break;
+    default:
+        assert(false);
+    }
+    result = hipGetLastError();
+    assert(result == hipSuccess);
+
+    hipStreamSynchronize(0);
+
+    result = hipMemcpy(h_dst, d_dst.get(), n * sizeof(uint8_t) * size, hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+
+__global__ void kernel_split_frame_y8_y8_from_y8i_hip(uint8_t* a, uint8_t* b, int count, const rship::y8i_pixel * source)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i >= count)
+        return;
+
+    a[i] = source[i].l;
+    b[i] = source[i].r;
+}
+
+void rship::y8_y8_from_y8i_hip_helper(uint8_t* const dest[], int count, const rship::y8i_pixel * source)
+{
+    int numBlocks = count / RS2_HIP_THREADS_PER_BLOCK;
+    uint8_t* a = dest[0];
+    uint8_t* b = dest[1];
+
+    auto d_src = alloc_dev<rship::y8i_pixel>(count);
+    auto d_dst_0 = alloc_dev<uint8_t>(count);
+    auto d_dst_1 = alloc_dev<uint8_t>(count);
+
+    auto result = hipMemcpy(d_src.get(), source, count * sizeof(rship::y8i_pixel), hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    hipLaunchKernelGGL(kernel_split_frame_y8_y8_from_y8i_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_dst_0.get(), d_dst_1.get(), count, d_src.get());
+    hipStreamSynchronize(0);
+
+    result = hipGetLastError();
+    assert(result == hipSuccess);
+
+    result = hipMemcpy(a, d_dst_0.get(), count * sizeof(uint8_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+    result = hipMemcpy(b, d_dst_1.get(), count * sizeof(uint8_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+__global__ void kernel_split_frame_y8_y8_from_y8i_mipi_hip(uint8_t* a, uint8_t* b, int count, const rship::y8i_pixel_mipi * source)
+{
+    int pair_index = blockDim.x * blockIdx.x + threadIdx.x;
+    int pair_count = count / 2;
+    if (pair_index >= pair_count)
+        return;
+
+    int i = pair_index * 2;
+
+    // temporary workaround - swapping ordering of left, caused due to received frame
+    // when fixed we can use the regular kernel_split_frame_y8_y8_from_y8i_hip
+    a[i]     = source[i + 1].l;
+    b[i]     = source[i].r;
+
+    a[i + 1] = source[i].l;
+    b[i + 1] = source[i + 1].r;
+}
+
+void rship::y8_y8_from_y8i_mipi_hip_helper(uint8_t* const dest[], int count, const rship::y8i_pixel_mipi * source)
+{
+    int pair_count = count / 2;
+    int numBlocks = pair_count / RS2_HIP_THREADS_PER_BLOCK;
+    uint8_t* a = dest[0];
+    uint8_t* b = dest[1];
+
+    auto d_src = alloc_dev<rship::y8i_pixel_mipi>(count);
+    auto d_dst_0 = alloc_dev<uint8_t>(count);
+    auto d_dst_1 = alloc_dev<uint8_t>(count);
+
+    auto result = hipMemcpy(d_src.get(), source, count * sizeof(rship::y8i_pixel_mipi), hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    hipLaunchKernelGGL(kernel_split_frame_y8_y8_from_y8i_mipi_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_dst_0.get(), d_dst_1.get(), count, d_src.get());
+    hipStreamSynchronize(0);
+
+    result = hipGetLastError();
+    assert(result == hipSuccess);
+
+    result = hipMemcpy(a, d_dst_0.get(), count * sizeof(uint8_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+    result = hipMemcpy(b, d_dst_1.get(), count * sizeof(uint8_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+
+template<class SOURCE>
+__global__ void kernel_split_frame_y16_y16_from_y12i_hip(uint16_t* a, uint16_t* b, int count, const SOURCE * source)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i >= count)
+        return;
+
+    a[i] = source[i].l() << 6 | source[i].l() >> 4;
+    b[i] = source[i].r() << 6 | source[i].r() >> 4;
+}
+
+
+template<class SOURCE>
+void rship::y16_y16_from_y12i_10_hip_helper(uint8_t* const dest[], int count, const SOURCE * source)
+{
+    source = reinterpret_cast<const SOURCE*>(source);
+
+    int numBlocks = count / RS2_HIP_THREADS_PER_BLOCK;
+    uint16_t* a = reinterpret_cast<uint16_t*>(dest[0]);
+    uint16_t* b = reinterpret_cast<uint16_t*>(dest[1]);
+
+    auto d_src = alloc_dev<SOURCE>(count);
+    auto d_dst_0 = alloc_dev<uint16_t>(count);
+    auto d_dst_1 = alloc_dev<uint16_t>(count);
+
+
+    auto result = hipMemcpy(d_src.get(), source, count * sizeof(SOURCE), hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(kernel_split_frame_y16_y16_from_y12i_hip<SOURCE>), dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_dst_0.get(), d_dst_1.get(), count, d_src.get());
+    hipStreamSynchronize(0);
+
+    result = hipGetLastError();
+    assert(result == hipSuccess);
+
+    result = hipMemcpy(a, d_dst_0.get(), count * sizeof(uint16_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+    result = hipMemcpy(b, d_dst_1.get(), count * sizeof(uint16_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+template void rship::y16_y16_from_y12i_10_hip_helper<rship::y12i_pixel>(uint8_t* const dest[], int count, const rship::y12i_pixel * source);
+
+
+template void rship::y16_y16_from_y12i_10_hip_helper<rship::y12i_pixel_mipi>(uint8_t* const dest[], int count, const rship::y12i_pixel_mipi * source);
+
+__global__ void kernel_z16_y8_from_sr300_inzi_hip(const uint16_t* source, uint8_t* const dest, int count)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i >= count)
+        return;
+
+    dest[i] = source[i] >> 2;
+}
+
+void rship::unpack_z16_y8_from_sr300_inzi_hip(uint8_t * const dest, const uint16_t * source, int count)
+{
+    auto d_src = alloc_dev<uint16_t>(count);
+    auto d_dst = alloc_dev<uint8_t>(count);
+
+    int numBlocks = count / RS2_HIP_THREADS_PER_BLOCK;
+
+    auto result = hipMemcpy(d_src.get(), source, count * sizeof(uint16_t), hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    hipLaunchKernelGGL(kernel_z16_y8_from_sr300_inzi_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), count);
+    hipStreamSynchronize(0);
+
+    result = hipMemcpy(dest, d_dst.get(), count * sizeof(uint8_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+__global__ void kernel_z16_y16_from_sr300_inzi_hip(uint16_t* const source, uint16_t* const dest, int count)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (i >= count)
+        return;
+
+    dest[i] = source[i] << 6;
+}
+
+void rship::unpack_z16_y16_from_sr300_inzi_hip(uint16_t * const dest, const uint16_t * source, int count)
+{
+    auto d_src = alloc_dev<uint16_t>(count);
+    auto d_dst = alloc_dev<uint16_t>(count);
+
+    int numBlocks = count / RS2_HIP_THREADS_PER_BLOCK;
+
+    auto result = hipMemcpy(d_src.get(), source, count * sizeof(uint16_t), hipMemcpyHostToDevice);
+    assert(result == hipSuccess);
+
+    hipLaunchKernelGGL(kernel_z16_y16_from_sr300_inzi_hip, dim3(numBlocks), dim3(RS2_HIP_THREADS_PER_BLOCK), 0, 0, d_src.get(), d_dst.get(), count);
+    hipStreamSynchronize(0);
+
+    result = hipMemcpy(dest, d_dst.get(), count * sizeof(uint16_t), hipMemcpyDeviceToHost);
+    assert(result == hipSuccess);
+}
+
+#endif

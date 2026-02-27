@@ -1,25 +1,26 @@
-//This file is the hipified version of cuda-pointcloud.cpp
+// License: Apache 2.0. See LICENSE file in root directory.
+// Copyright(c) 2019 RealSense, Inc. All Rights Reserved.
+#include "proc/hip/hip-pointcloud.h"
 
 #ifdef RS2_USE_HIP
-
-#include "hip-pointcloud.h"
-#include "../../hip/rship_utils.hpp"
-#include <hip/hip_runtime.h>
-
-// TODO: Add hipified pointcloud implementations here
-// This is a placeholder file - needs to be converted from CUDA to HIP
+#include "../../hip/hip-pointcloud.hpp"
+#endif
 
 namespace librealsense
 {
-    hip_pointcloud::hip_pointcloud() : pointcloud()
-    {
-        // TODO: Initialize HIP resources
-    }
+    pointcloud_hip::pointcloud_hip() : pointcloud("Pointcloud (HIP)") {}
 
-    hip_pointcloud::~hip_pointcloud()
+    const float3 * pointcloud_hip::depth_to_points(
+        rs2::points output,
+        const rs2_intrinsics &depth_intrinsics,
+        const rs2::depth_frame& depth_frame)
     {
-        // TODO: Cleanup HIP resources
+        auto image = output.get_vertices();
+        auto depth_data = (uint16_t*)depth_frame.get_data();
+        auto depth_scale = depth_frame.get_units();
+#ifdef RS2_USE_HIP
+        rship::deproject_depth_hip((float*)image, depth_intrinsics, depth_data, depth_scale);
+#endif
+        return (float3*)image;
     }
 }
-
-#endif // RS2_USE_HIP
