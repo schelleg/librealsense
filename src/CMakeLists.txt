@@ -53,6 +53,10 @@ if(BUILD_WITH_CUDA)
     include(${_rel_path}/cuda/CMakeLists.txt)
 endif()
 
+if(BUILD_WITH_HIP)
+    include(${_rel_path}/hip/CMakeLists.txt)
+endif()
+
 if(LRS_TRY_USE_AVX)
     set_source_files_properties(image-avx.cpp PROPERTIES COMPILE_FLAGS -mavx2)
 endif()

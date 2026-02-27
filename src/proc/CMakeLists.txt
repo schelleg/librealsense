@@ -6,6 +6,10 @@ if (BUILD_WITH_CUDA)
     include(${_proc_rel_path}/cuda/CMakeLists.txt)
 endif()
 
+if (BUILD_WITH_HIP)
+    include(${_proc_rel_path}/hip/CMakeLists.txt)
+endif()
+
 include(${_proc_rel_path}/sse/CMakeLists.txt)
 
 include(${_proc_rel_path}/neon/CMakeLists.txt)
